@@ -6,7 +6,7 @@ import tensorflow as tf
 
 def main() -> None:
     # Create strategy
-    strategy = fl.server.strategy.FedAvgAndroid(
+    strategy = fl.server.strategy.FedAvg(
         fraction_fit=1.0,
         fraction_eval=1.0,
         min_fit_clients=2,
