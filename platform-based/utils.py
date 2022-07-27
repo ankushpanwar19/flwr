@@ -1,6 +1,7 @@
 import torch
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10
+from torch.utils.data import DataLoader
 
 import warnings
 from tqdm import tqdm
@@ -56,7 +57,8 @@ def train(net, trainloader, valloader, epochs, device: str = "cpu"):
     for epoch in range(epochs):
         i=0
         running_loss = 0.0
-        for images, labels in trainloader:
+        print("Starting epoch :",epoch+1)
+        for images, labels in (pbar := tqdm(trainloader)):
             # print(f"Training {epochs} epoch(s) w/ {len(trainloader)} batches each")
             images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -65,9 +67,12 @@ def train(net, trainloader, valloader, epochs, device: str = "cpu"):
             optimizer.step()
             i+=1
             running_loss += loss.item()
-            if i % 20 == 19:  # print every 100 mini-batches
-                print("[%d, %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 16*20))
-                running_loss = 0.0
+            pbar.set_description(f"Loss:{running_loss/i}")
+            # if i % 100 == 99:  # print every 100 mini-batches
+            #     print("[%d, %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 16*20))
+            #     running_loss = 0.0
+        vloss, vacc = test(net, valloader)
+        print(f"Epoch:{epoch}, ")
 
     net.to("cpu")  # move model back to CPU
 
@@ -91,7 +96,7 @@ def test(net, testloader, steps: int = None, device: str = "cpu"):
     correct, total, loss = 0, 0, 0.0
     net.eval()
     with torch.no_grad():
-        for batch_idx, (images, labels) in tqdm(enumerate(testloader)):
+        for batch_idx, (images, labels) in enumerate(tqdm(testloader)):
             images, labels = images.to(device), labels.to(device)
             outputs = net(images)
             loss += criterion(outputs, labels).item()
@@ -145,5 +150,25 @@ def get_model_params(model: "PyTorch Model"):
     """Returns a model's parameters."""
     return [val.cpu().numpy() for _, val in model.state_dict().items()]
 
+def train_central(model,trainset,testset,epochs,device='cpu'):
+
+    validation_split =0.1
+    n_valset = int(len(trainset) * validation_split)
+
+    valset = torch.utils.data.Subset(trainset, range(0, n_valset))
+    trainset = torch.utils.data.Subset(trainset, range(n_valset, len(trainset)))
+
+    trainLoader = DataLoader(trainset, batch_size=16, shuffle=True)
+    valLoader = DataLoader(valset, batch_size=16)
+    testLoader = DataLoader(testset, batch_size=16)
+
+    results = train(model, trainLoader, valLoader, epochs, device)
+    print(results)
+    loss, accuracy = test(model, testLoader)
+    print(f"Central Training Test Metrics: Loss = {loss} , Acc = {accuracy}")
+    
+
 if __name__=="__main__":
-    load_efficientnet(classes=10)
+    trainset, testset, num_examples = load_data()
+    model = load_efficientnet(classes=10)
+    train_central(model,trainset,testset,epochs=10)
