@@ -7,8 +7,7 @@ import warnings
 from tqdm import tqdm
 warnings.filterwarnings("ignore")
 
-# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def load_data():
     """Load CIFAR-10 (training and test set)."""
@@ -44,13 +43,13 @@ def load_partition(idx: int):
     return (train_parition, test_parition)
 
 
-def train(net, trainloader, valloader, epochs, device: str = "cpu"):
+def train(net, trainloader, valloader, epochs, device: str = "cpu",testLoader=None):
     """Train the network on the training set."""
     print("Starting training...")
     net.to(device)  # move model to GPU if available
     criterion = torch.nn.CrossEntropyLoss().to(device)
-    optimizer = torch.optim.SGD(
-        net.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4
+    optimizer = torch.optim.Adam(
+        net.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4
     )
     
     net.train()
@@ -72,7 +71,10 @@ def train(net, trainloader, valloader, epochs, device: str = "cpu"):
             #     print("[%d, %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 16*20))
             #     running_loss = 0.0
         vloss, vacc = test(net, valloader)
-        print(f"Epoch:{epoch}, ")
+        print(f"Validation:: Epoch:{epoch}, vloss:{vloss} vacc:{vacc}")
+        if testLoader is not None:
+            tloss, tacc = test(net, valloader)
+        print(f"Testing:: Epoch:{epoch}, vloss:{tloss} vacc:{tacc}")
 
     net.to("cpu")  # move model back to CPU
 
@@ -162,7 +164,7 @@ def train_central(model,trainset,testset,epochs,device='cpu'):
     valLoader = DataLoader(valset, batch_size=16)
     testLoader = DataLoader(testset, batch_size=16)
 
-    results = train(model, trainLoader, valLoader, epochs, device)
+    results = train(model, trainLoader, valLoader, epochs, device,testLoader=testLoader)
     print(results)
     loss, accuracy = test(model, testLoader)
     print(f"Central Training Test Metrics: Loss = {loss} , Acc = {accuracy}")
@@ -171,4 +173,5 @@ def train_central(model,trainset,testset,epochs,device='cpu'):
 if __name__=="__main__":
     trainset, testset, num_examples = load_data()
     model = load_efficientnet(classes=10)
+
     train_central(model,trainset,testset,epochs=10)
