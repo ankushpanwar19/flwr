@@ -11,7 +11,7 @@ import utils
 import warnings
 
 warnings.filterwarnings("ignore")
-
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def fit_config(server_round: int):
     """Return training configuration dict for each round.
@@ -20,7 +20,7 @@ def fit_config(server_round: int):
     """
     config = {
         "batch_size": 16,
-        "local_epochs": 1 if server_round < 2 else 2,
+        "local_epochs": 1 if server_round < 2 else 1,
     }
     return config
 
@@ -31,7 +31,8 @@ def evaluate_config(server_round: int):
     batches) during rounds one to three, then increase to ten local
     evaluation steps.
     """
-    val_steps = 5 if server_round < 4 else 10
+    # val_steps = 5 if server_round < 4 else 10
+    val_steps = 625
     return {"val_steps": val_steps}
 
 
@@ -39,7 +40,7 @@ def get_evaluate_fn(model: torch.nn.Module, toy: bool):
     """Return an evaluation function for server-side evaluation."""
 
     # Load data and model here to avoid the overhead of doing it in `evaluate` itself
-    trainset, _, _ = utils.load_data()
+    trainset, testset, _ = utils.load_data()
 
     n_train = len(trainset)
     if toy:
@@ -50,6 +51,7 @@ def get_evaluate_fn(model: torch.nn.Module, toy: bool):
         valset = torch.utils.data.Subset(trainset, range(n_train - 5000, n_train))
 
     valLoader = DataLoader(valset, batch_size=16)
+    testLoader = DataLoader(testset, batch_size=16)
     # The `evaluate` function will be called after every round
     def evaluate(
         weights: fl.common.Weights,
@@ -59,7 +61,8 @@ def get_evaluate_fn(model: torch.nn.Module, toy: bool):
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
         model.load_state_dict(state_dict, strict=True)
 
-        loss, accuracy = utils.test(model, valLoader)
+        loss, accuracy = utils.test(model, testLoader,device=DEVICE)
+        print(f"Server Test: loss{loss}, accuracy:{accuracy}")
         return loss, {"accuracy": accuracy}
 
     return evaluate
@@ -95,14 +98,14 @@ def main():
         min_fit_clients=2,
         min_eval_clients=2,
         min_available_clients=2,
-        # eval_fn=get_evaluate_fn(model, args.toy),
+        eval_fn=get_evaluate_fn(model, args.toy),
         on_fit_config_fn=fit_config,
         on_evaluate_config_fn=evaluate_config,
         initial_parameters=fl.common.weights_to_parameters(model_weights),
     )
 
     # Start Flower server for four rounds of federated learning
-    fl.server.start_server("0.0.0.0:8080", config={"num_rounds": 4}, strategy=strategy)
+    fl.server.start_server("0.0.0.0:8080", config={"num_rounds": 15}, strategy=strategy)
 
 
 if __name__ == "__main__":

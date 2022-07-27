@@ -5,9 +5,23 @@ from torch.utils.data import DataLoader
 
 import warnings
 from tqdm import tqdm
+import numpy as np
 warnings.filterwarnings("ignore")
+import math
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(DEVICE)
+
+class ConcatDataset(torch.utils.data.Dataset):
+    def __init__(self, *datasets):
+        self.datasets = datasets
+
+    def __getitem__(self, i):
+        return tuple(d[i] for d in self.datasets)
+
+    def __len__(self):
+        return min(len(d) for d in self.datasets)
+
 
 def load_data():
     """Load CIFAR-10 (training and test set)."""
@@ -27,12 +41,12 @@ def load_data():
     return trainset, testset, num_examples
 
 
-def load_partition(idx: int):
+def load_partition(idx: int,total_partition = 10 ):
     """Load 1/10th of the training and test data to simulate a partition."""
-    assert idx in range(10)
+    assert idx in range(total_partition)
     trainset, testset, num_examples = load_data()
-    n_train = int(num_examples["trainset"] / 10)
-    n_test = int(num_examples["testset"] / 10)
+    n_train = int(num_examples["trainset"] / total_partition)
+    n_test = int(num_examples["testset"] / total_partition)
 
     train_parition = torch.utils.data.Subset(
         trainset, range(idx * n_train, (idx + 1) * n_train)
@@ -42,6 +56,34 @@ def load_partition(idx: int):
     )
     return (train_parition, test_parition)
 
+def load_partition_class(idx: int, total_partition = 10 ):
+    """Load 1/10th of the training and test data to simulate a partition."""
+    assert idx in range(total_partition)
+    trainset, testset, num_examples = load_data()
+    # trainset_check, _, _ = load_data()
+    idxByClass = []
+    for cls in range(10):
+        indx = np.array(trainset.targets)==cls
+        idxByClass.append(indx)
+        # trainset_check.targets = list(np.array(trainset.targets)[idx])
+        # trainset_check.data = trainset.data[idx]
+        # datasetsByClass.append(trainset_check)  
+
+    n_train = math.ceil(10 / total_partition)
+    n_test = math.ceil(10 / total_partition)
+    start = idx*n_train
+    end = (idx+1)*n_train
+    partition_idx=idxByClass[start]
+    for i in range(start+1,end):
+       partition_idx +=idxByClass[i]
+    idx_val = np.where(partition_idx==True)[0]
+    train_parition = torch.utils.data.Subset(
+        trainset, idx_val
+    )
+    test_parition = testset
+
+    return (train_parition, test_parition)
+
 
 def train(net, trainloader, valloader, epochs, device: str = "cpu",testLoader=None):
     """Train the network on the training set."""
@@ -49,14 +91,21 @@ def train(net, trainloader, valloader, epochs, device: str = "cpu",testLoader=No
     net.to(device)  # move model to GPU if available
     criterion = torch.nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.Adam(
-        net.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4
+        net.parameters(), lr=0.001, weight_decay=1e-4
     )
-    
-    net.train()
+
     for epoch in range(epochs):
         i=0
         running_loss = 0.0
-        print("Starting epoch :",epoch+1)
+        # print("Starting epoch :",epoch+1)
+        # vloss, vacc = test(net, valloader,device=device)
+        # print(f"Validation:: Epoch:{epoch}, vloss:{vloss} vacc:{vacc}")
+        # if testLoader is not None:
+        #     tloss, tacc = test(net, testLoader,device=device)
+        #     print(f"Testing:: Epoch:{epoch}, tloss:{tloss} tacc:{tacc}")
+        # PATH = f"checkpoints/model_ep{epoch}.pth"
+        # torch.save(net.state_dict(), PATH)
+        net.train()
         for images, labels in (pbar := tqdm(trainloader)):
             # print(f"Training {epochs} epoch(s) w/ {len(trainloader)} batches each")
             images, labels = images.to(device), labels.to(device)
@@ -70,23 +119,20 @@ def train(net, trainloader, valloader, epochs, device: str = "cpu",testLoader=No
             # if i % 100 == 99:  # print every 100 mini-batches
             #     print("[%d, %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 16*20))
             #     running_loss = 0.0
-        vloss, vacc = test(net, valloader)
-        print(f"Validation:: Epoch:{epoch}, vloss:{vloss} vacc:{vacc}")
-        if testLoader is not None:
-            tloss, tacc = test(net, valloader)
-        print(f"Testing:: Epoch:{epoch}, vloss:{tloss} vacc:{tacc}")
+            # break
 
-    net.to("cpu")  # move model back to CPU
+    # net.to("cpu")  # move model back to CPU
 
-    train_loss, train_acc = test(net, trainloader)
-    val_loss, val_acc = test(net, valloader)
+    # train_loss, train_acc = test(net, trainloader,device=device)
+    val_loss, val_acc = test(net, valloader,device=device)
 
     results = {
-        "train_loss": train_loss,
-        "train_accuracy": train_acc,
+        "train_loss": 0.0,
+        "train_accuracy": 0.0,
         "val_loss": val_loss,
         "val_accuracy": val_acc,
     }
+    net.to("cpu")
     return results
 
 
@@ -105,6 +151,7 @@ def test(net, testloader, steps: int = None, device: str = "cpu"):
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
+            # break
             if steps is not None and batch_idx == steps:
                 break
     if steps is None:
@@ -160,18 +207,22 @@ def train_central(model,trainset,testset,epochs,device='cpu'):
     valset = torch.utils.data.Subset(trainset, range(0, n_valset))
     trainset = torch.utils.data.Subset(trainset, range(n_valset, len(trainset)))
 
-    trainLoader = DataLoader(trainset, batch_size=16, shuffle=True)
-    valLoader = DataLoader(valset, batch_size=16)
-    testLoader = DataLoader(testset, batch_size=16)
+
+    trainLoader = DataLoader(trainset, batch_size=32, shuffle=True)
+    valLoader = DataLoader(valset, batch_size=32)
+    testLoader = DataLoader(testset, batch_size=32)
 
     results = train(model, trainLoader, valLoader, epochs, device,testLoader=testLoader)
     print(results)
-    loss, accuracy = test(model, testLoader)
+    loss, accuracy = test(model, testLoader,device=device)
     print(f"Central Training Test Metrics: Loss = {loss} , Acc = {accuracy}")
     
 
 if __name__=="__main__":
-    trainset, testset, num_examples = load_data()
+    # trainset, testset, num_examples = load_data()
+    # model = load_efficientnet(classes=10)
+    # train_central(model,trainset,testset,epochs=10,device = DEVICE)
+    # load_partition(idx=0)
+    trainset, testset = load_partition_class(idx=0,total_partition=2)
     model = load_efficientnet(classes=10)
-
-    train_central(model,trainset,testset,epochs=10)
+    train_central(model,trainset,testset,epochs=10,device = DEVICE)

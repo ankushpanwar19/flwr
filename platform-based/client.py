@@ -75,6 +75,7 @@ class CifarClient(fl.client.NumPyClient):
         testloader = DataLoader(self.testset, batch_size=16)
 
         loss, accuracy = utils.test(model, testloader, steps, self.device)
+        print(f"Client Test Loss:{loss} , Dataset:{len(self.testset)} accuracy:{accuracy}")
         return float(loss), len(self.testset), {"accuracy": float(accuracy)}
 
 
@@ -127,7 +128,7 @@ def main() -> None:
     parser.add_argument(
         "--use_cuda",
         type=bool,
-        default=False,
+        default=True,
         required=False,
         help="Set to true to use GPU. Default: False",
     )
@@ -142,7 +143,8 @@ def main() -> None:
         client_dry_run(device)
     else:
         # Load a subset of CIFAR-10 to simulate the local data partition
-        trainset, testset = utils.load_partition(args.partition)
+        # trainset, testset = utils.load_partition(args.partition,total_partition=2)
+        trainset, testset = utils.load_partition_class(args.partition,total_partition=2)
 
         if args.toy:
             trainset = torch.utils.data.Subset(trainset, range(10))
